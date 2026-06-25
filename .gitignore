@@ -48,3 +48,30 @@ vite.svg
 # =========================
 *.sqlite3
 *.db
+
+
+# env
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# node
+node_modules/
+frontend/node_modules/
+
+# build
+dist/
+build/
+
+# runtime / generated
+backend/qdrant_data/
+backend/reports/*.pdf
+backend/reports/*.md
