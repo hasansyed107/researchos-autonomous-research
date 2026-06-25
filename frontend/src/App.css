@@ -1,0 +1,267 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.08), transparent 22%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 20%),
+    linear-gradient(to bottom, #020617, #020617);
+}
+
+/* Better selection */
+::selection {
+  background: rgba(34, 211, 238, 0.25);
+  color: white;
+}
+
+/* Scrollbar polish */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.55) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.7);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.95);
+  background-clip: padding-box;
+}
+
+/* Smooth transitions */
+button,
+input,
+textarea {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+@layer components {
+  .panel-card {
+    @apply rounded-3xl border border-white/10 bg-slate-900/90 shadow-xl;
+  }
+
+  .glass-card {
+    @apply rounded-3xl border border-white/10 bg-slate-900/70 backdrop-blur-xl shadow-2xl;
+  }
+
+  .section-title {
+    @apply text-lg font-bold text-white;
+  }
+
+  .section-subtitle {
+    @apply text-sm text-slate-400;
+  }
+
+  .badge-soft {
+    @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300;
+  }
+
+  .input-base {
+    @apply w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-4 text-white placeholder:text-slate-500 outline-none focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-500/20;
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-3 font-semibold text-white transition-all bg-gradient-to-r from-cyan-500 to-blue-600 shadow-lg shadow-cyan-500/20 hover:-translate-y-0.5 hover:shadow-cyan-500/30 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 disabled:shadow-none;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center justify-center rounded-2xl px-4 py-2.5 font-medium transition bg-slate-800 text-slate-200 hover:bg-slate-700;
+  }
+
+  .stat-card {
+    @apply rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-lg;
+  }
+
+  .soft-divider {
+    @apply border-t border-white/10;
+  }
+}
+
+/* Markdown / report styling */
+@layer base {
+  .prose {
+    --tw-prose-body: rgb(203 213 225);
+    --tw-prose-headings: rgb(248 250 252);
+    --tw-prose-lead: rgb(148 163 184);
+    --tw-prose-links: rgb(103 232 249);
+    --tw-prose-bold: rgb(255 255 255);
+    --tw-prose-counters: rgb(148 163 184);
+    --tw-prose-bullets: rgb(100 116 139);
+    --tw-prose-hr: rgb(30 41 59);
+    --tw-prose-quotes: rgb(226 232 240);
+    --tw-prose-quote-borders: rgb(34 211 238 / 0.35);
+    --tw-prose-captions: rgb(148 163 184);
+    --tw-prose-code: rgb(103 232 249);
+    --tw-prose-pre-code: rgb(226 232 240);
+    --tw-prose-pre-bg: rgb(15 23 42);
+    --tw-prose-th-borders: rgb(51 65 85);
+    --tw-prose-td-borders: rgb(30 41 59);
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3 {
+    letter-spacing: -0.02em;
+  }
+
+  .prose h1 {
+    @apply text-3xl font-bold mb-4;
+  }
+
+  .prose h2 {
+    @apply text-2xl font-bold mt-10 mb-4;
+  }
+
+  .prose h3 {
+    @apply text-xl font-semibold mt-8 mb-3;
+  }
+
+  .prose p {
+    @apply text-slate-300 leading-7;
+  }
+
+  .prose ul,
+  .prose ol {
+    @apply text-slate-300;
+  }
+
+  .prose li {
+    @apply my-1;
+  }
+
+  .prose strong {
+    @apply text-white;
+  }
+
+  .prose table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+  }
+
+  .prose thead th {
+    background: rgba(15, 23, 42, 0.95);
+    @apply px-4 py-3 text-left text-sm font-semibold text-slate-200 border border-slate-700;
+  }
+
+  .prose tbody td {
+    @apply px-4 py-3 text-sm text-slate-300 border border-slate-800 align-top;
+  }
+
+  .prose tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  .prose blockquote {
+    background: rgba(15, 23, 42, 0.55);
+    @apply rounded-2xl px-5 py-4 border-l-4 border-cyan-400 text-slate-200;
+  }
+
+  .prose pre {
+    @apply rounded-2xl border border-slate-800;
+  }
+
+  .prose code::before,
+  .prose code::after {
+    content: "";
+  }
+
+  .prose hr {
+    @apply my-8 border-slate-800;
+  }
+}
+@layer components {
+  .report-markdown {
+    @apply text-slate-300;
+  }
+
+  .report-markdown h1 {
+    @apply text-3xl md:text-4xl font-bold tracking-tight text-white mb-6;
+  }
+
+  .report-markdown h2 {
+    @apply mt-10 mb-4 text-2xl font-bold text-white border-b border-white/10 pb-3;
+  }
+
+  .report-markdown h3 {
+    @apply mt-8 mb-3 text-xl font-semibold text-white;
+  }
+
+  .report-markdown p {
+    @apply text-slate-300 leading-7;
+  }
+
+  .report-markdown ul,
+  .report-markdown ol {
+    @apply my-4 pl-6;
+  }
+
+  .report-markdown li {
+    @apply my-1.5;
+  }
+
+  .report-markdown table {
+    @apply w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60;
+  }
+
+  .report-markdown thead {
+    @apply bg-slate-900/90;
+  }
+
+  .report-markdown thead th {
+    @apply px-4 py-3 text-left text-sm font-semibold text-slate-200 border-b border-white/10;
+  }
+
+  .report-markdown tbody td {
+    @apply px-4 py-3 text-sm text-slate-300 border-t border-white/5 align-top;
+  }
+
+  .report-markdown blockquote {
+    @apply rounded-2xl border border-cyan-400/20 bg-cyan-500/5 px-5 py-4 text-slate-200;
+  }
+
+  .report-markdown hr {
+    @apply my-8 border-white/10;
+  }
+
+  .report-markdown pre {
+    @apply rounded-2xl border border-white/10 bg-slate-950 p-4 overflow-x-auto;
+  }
+
+  .report-markdown code {
+    @apply text-cyan-300;
+  }
+}

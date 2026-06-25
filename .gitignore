@@ -1,0 +1,50 @@
+# =========================
+# Python / Backend
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# FastAPI / app env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# =========================
+# Node / Frontend
+# =========================
+node_modules/
+dist/
+build/
+coverage/
+
+# Frontend env
+frontend/.env
+frontend/.env.*
+backend/.env
+backend/.env.*
+
+# Vite
+vite.svg
+
+# =========================
+# Misc
+# =========================
+*.sqlite3
+*.db
