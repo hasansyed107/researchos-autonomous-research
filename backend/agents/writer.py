@@ -1,5 +1,18 @@
+import re
+
+
+
 from llm import safe_generate
 from langsmith import traceable
+
+# =========================================================
+# Configuration
+# =========================================================
+
+MAX_SECTION = 1200
+MAX_REVIEW = 500
+MAX_SOURCES = 3
+MAX_SOURCE_SNIPPET = 100
 
 
 # =========================================================
@@ -9,287 +22,766 @@ from langsmith import traceable
 def _safe_text(value) -> str:
     if value is None:
         return ""
+
     if isinstance(value, str):
         return value.strip()
+
     if isinstance(value, list):
-        return "\n".join(str(v).strip() for v in value if v).strip()
+        return "\n".join(
+            str(v).strip() for v in value if v
+        ).strip()
+
     return str(value).strip()
 
 
+def _strip_heading(text: str) -> str:
+    """
+    Removes duplicated headings produced by upstream agents.
+    """
+
+    text = _safe_text(text)
+
+    headings = [
+        "Executive Summary",
+        "Market Analysis",
+        "Technology Analysis",
+        "Future Trends",
+        "Review Notes",
+        "Fact Check",
+    ]
+
+    for heading in headings:
+
+        pattern = rf"^{re.escape(heading)}\s*:?\s*"
+
+        text = re.sub(
+            pattern,
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    return text.strip()
+
+
+def _compress(text: str, limit: int = MAX_SECTION):
+    """
+    Compress text while preserving complete paragraphs.
+    """
+
+    text = _safe_text(text)
+
+    if len(text) <= limit:
+        return text
+
+    paragraphs = re.split(r"\n\s*\n", text)
+
+    output = []
+    total = 0
+
+    for para in paragraphs:
+
+        para = para.strip()
+
+        if not para:
+            continue
+
+        if total + len(para) > limit:
+            break
+
+        output.append(para)
+        total += len(para)
+
+    return "\n\n".join(output)
+
+
+def _dedupe(text: str):
+    """
+    Remove duplicate lines while preserving markdown headings.
+    """
+
+    text = _safe_text(text)
+
+    seen = set()
+    output = []
+
+    for line in text.splitlines():
+
+        raw = line.rstrip()
+
+        if raw.startswith("#"):
+            output.append(raw)
+            continue
+
+        key = raw.strip()
+
+        if not key:
+            output.append("")
+            continue
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        output.append(raw)
+
+    return "\n".join(output).strip()
+
+
 def _safe_results(source_obj):
+
     if not isinstance(source_obj, dict):
         return []
+
     results = source_obj.get("results", [])
+
     if not isinstance(results, list):
         return []
+
     cleaned = []
-    for item in results[:8]:
-        if isinstance(item, dict):
-            cleaned.append({
-                "title": str(item.get("title", "Untitled")).strip(),
-                "url": str(item.get("url", "")).strip(),
-                "content": str(item.get("content", "")).strip(),
-            })
+    seen = set()
+
+    for item in results:
+
+        if not isinstance(item, dict):
+            continue
+
+        title = _safe_text(item.get("title"))
+        url = _safe_text(item.get("url"))
+
+        key = (title, url)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        cleaned.append(
+            {
+                "title": title or "Untitled",
+                "content": _safe_text(
+                    item.get("content")
+                ),
+            }
+        )
+
+        if len(cleaned) >= MAX_SOURCES:
+            break
+
     return cleaned
 
 
-def _is_llm_failure(text: str) -> bool:
+def _is_llm_failure(text: str):
+
     if not text:
         return True
 
-    lowered = text.lower().strip()
-    failure_markers = [
-        "llm generation unavailable",
+    text = text.lower().strip()
+
+    failures = [
         "quota exceeded",
         "generation failed",
+        "llm generation unavailable",
         "rate limit",
-        "permission-denied",
-        "failed to generate",
-        "no report generated",
-        "error generating report",
+        "permission denied",
         "writer failed",
+        "failed to generate",
+        "internal error",
         "unavailable",
+        "no report generated",
     ]
 
-    if any(x in lowered for x in failure_markers):
-        return True
-
-    if len(lowered) < 80:
-        return True
-
-    return False
+    return (
+        any(f in text for f in failures)
+        or len(text) < 120
+    )
 
 
-def _format_sources(results, section_name: str) -> str:
+def _format_sources(results, section):
+
     if not results:
-        return f"No {section_name.lower()} sources available."
+        return f"No {section.lower()} sources."
 
-    lines = []
-    for i, item in enumerate(results[:5], 1):
-        title = item["title"] or "Untitled"
-        url = item["url"] or "N/A"
-        content = (item["content"] or "No content available.")[:300]
+    output = []
 
-        lines.append(
-            f"""### {i}. {title}
-**Source:** {url}
+    for i, item in enumerate(results, 1):
 
-{content}
+        snippet = " ".join(
+            item["content"].split()
+        )[:MAX_SOURCE_SNIPPET]
+
+        output.append(
+            f"""[{i}] {item['title']}
+
+Evidence:
+{snippet}
 """
         )
 
-    return "\n\n".join(lines)
+    return "\n\n".join(output)
 
 
-def _format_chunks(chunks, title: str) -> str:
-    chunks = chunks or []
+def _format_chunks(chunks, title):
+
     if not chunks:
-        return f"### {title}\nNo PDF evidence available."
+        return f"{title}\nNo PDF evidence."
 
-    bullet_list = "\n".join(f"- {str(c).strip()}" for c in chunks[:8] if str(c).strip())
-    return f"### {title}\n{bullet_list}"
+    seen = set()
+    output = []
+
+    for chunk in chunks:
+
+        chunk = str(chunk).strip()
+
+        if not chunk:
+            continue
+
+        if chunk in seen:
+            continue
+
+        seen.add(chunk)
+
+        output.append(f"- {chunk}")
+
+        if len(output) >= 5:
+            break
+
+    return title + "\n" + "\n".join(output)
 
 
-def _build_non_llm_report(state) -> str:
+def _prepare(state):
     """
-    Deterministic fallback report builder.
-    This is used when upstream LLM output is weak or when final generation fails.
+    Compress, clean and deduplicate all upstream outputs
+    before sending them to the writer model.
     """
-    query = _safe_text(state.get("query")) or "Research Topic"
-    plan = _safe_text(state.get("plan"))
-    summary = _safe_text(state.get("research_summary"))
-    market = _safe_text(state.get("market_research"))
-    technology = _safe_text(state.get("technology_research"))
-    trends = _safe_text(state.get("trends_research"))
-    review = _safe_text(state.get("review"))
-    fact_check = _safe_text(state.get("fact_check"))
 
-    market_sources = _safe_results(state.get("market_sources"))
-    technology_sources = _safe_results(state.get("technology_sources"))
-    trends_sources = _safe_results(state.get("trends_sources"))
+    return {
 
-    market_chunks = state.get("market_chunks", []) or []
-    technology_chunks = state.get("technology_chunks", []) or []
-    trends_chunks = state.get("trends_chunks", []) or []
+        "query":
+            _safe_text(state.get("query")),
 
-    sections = [f"# Research Report\n\n## Topic\n{query}"]
+        "plan":
+            _compress(
+                state.get("plan"),
+                700,
+            ),
 
-    if plan:
-        sections.append(f"## Research Plan\n{plan}")
+        "summary":
+            _strip_heading(
+                _compress(
+                    state.get("research_summary"),
+                    MAX_SECTION,
+                )
+            ),
 
-    if summary:
-        sections.append(f"## Executive Summary\n{summary}")
+        "market":
+            _dedupe(
+                _strip_heading(
+                    _compress(
+                        state.get("market_research"),
+                        MAX_SECTION,
+                    )
+                )
+            ),
 
-    if market:
-        sections.append(f"## Market Analysis\n{market}")
+        "technology":
+            _dedupe(
+                _strip_heading(
+                    _compress(
+                        state.get("technology_research"),
+                        MAX_SECTION,
+                    )
+                )
+            ),
 
-    if technology:
-        sections.append(f"## Technology Analysis\n{technology}")
+        "trends":
+            _dedupe(
+                _strip_heading(
+                    _compress(
+                        state.get("trends_research"),
+                        MAX_SECTION,
+                    )
+                )
+            ),
 
-    if trends:
-        sections.append(f"## Future Trends\n{trends}")
+        "review":
+            _strip_heading(
+                _compress(
+                    state.get("review"),
+                    MAX_REVIEW,
+                )
+            ),
 
-    if review:
-        sections.append(f"## Review Notes\n{review}")
+        "fact":
+            _strip_heading(
+                _compress(
+                    state.get("fact_check"),
+                    MAX_REVIEW,
+                )
+            ),
 
-    if fact_check:
-        sections.append(f"## Fact Check\n{fact_check}")
+        "market_sources":
+            _safe_results(
+                state.get("market_sources")
+            ),
 
-    sections.append("## Source Evidence")
-    sections.append(f"### Market Sources\n{_format_sources(market_sources, 'Market')}")
-    sections.append(f"### Technology Sources\n{_format_sources(technology_sources, 'Technology')}")
-    sections.append(f"### Trends Sources\n{_format_sources(trends_sources, 'Trends')}")
+        "technology_sources":
+            _safe_results(
+                state.get("technology_sources")
+            ),
 
-    sections.append("## Retrieved PDF Evidence")
-    sections.append(_format_chunks(market_chunks, "Market Chunks"))
-    sections.append(_format_chunks(technology_chunks, "Technology Chunks"))
-    sections.append(_format_chunks(trends_chunks, "Trends Chunks"))
+        "trends_sources":
+            _safe_results(
+                state.get("trends_sources")
+            ),
 
-    return "\n\n---\n\n".join([s for s in sections if s and s.strip()])
+        "market_chunks":
+            state.get("market_chunks", []) or [],
 
+        "technology_chunks":
+            state.get("technology_chunks", []) or [],
+
+        "trends_chunks":
+            state.get("trends_chunks", []) or [],
+    }
 
 # =========================================================
-# Writer node
+# Deterministic Fallback Report
+# =========================================================
+
+def _build_non_llm_report(state):
+    """
+    Build a deterministic report when the writer LLM fails.
+    This guarantees a readable report even if generation fails.
+    """
+
+    data = _prepare(state)
+
+    sections = []
+
+    sections.append("# Research Report")
+
+    sections.append(
+f"""
+## Topic
+
+{data["query"]}
+"""
+    )
+
+    sections.append(
+f"""
+## Executive Summary
+
+{data["summary"] or "Not enough evidence available."}
+"""
+    )
+
+    sections.append(
+f"""
+## Market Analysis
+
+{data["market"] or "Not enough evidence available."}
+"""
+    )
+
+    sections.append(
+f"""
+## Technology Analysis
+
+{data["technology"] or "Not enough evidence available."}
+"""
+    )
+
+    sections.append(
+f"""
+## Future Trends
+
+{data["trends"] or "Not enough evidence available."}
+"""
+    )
+
+    if data["review"]:
+        sections.append(
+f"""
+## Review Notes
+
+{data["review"]}
+"""
+        )
+
+    if data["fact"]:
+        sections.append(
+f"""
+## Fact Check
+
+{data["fact"]}
+"""
+        )
+
+    sections.append(
+f"""
+## Market Sources
+
+{_format_sources(
+    data["market_sources"],
+    "Market"
+)}
+"""
+    )
+
+    sections.append(
+f"""
+## Technology Sources
+
+{_format_sources(
+    data["technology_sources"],
+    "Technology"
+)}
+"""
+    )
+
+    sections.append(
+f"""
+## Trend Sources
+
+{_format_sources(
+    data["trends_sources"],
+    "Trend"
+)}
+"""
+    )
+
+    sections.append(
+f"""
+## Retrieved PDF Evidence
+
+{_format_chunks(
+    data["market_chunks"],
+    "### Market Chunks"
+)}
+
+{_format_chunks(
+    data["technology_chunks"],
+    "### Technology Chunks"
+)}
+
+{_format_chunks(
+    data["trends_chunks"],
+    "### Trend Chunks"
+)}
+"""
+    )
+
+    report = "\n\n".join(sections)
+
+    # Cleanup
+
+    report = re.sub(r"\n{3,}", "\n\n", report)
+    report = report.strip()
+
+    return report
+# =========================================================
+# Writer Node
 # =========================================================
 
 @traceable
 def writer_node(state):
-    print("Writing...")
 
-    query = _safe_text(state.get("query")) or "Research Report"
+    print("Writing report...")
 
-    plan = _safe_text(state.get("plan"))[:900]
-    summary = _safe_text(state.get("research_summary"))[:1800]
-    market = _safe_text(state.get("market_research"))[:1200]
-    technology = _safe_text(state.get("technology_research"))[:1200]
-    trends = _safe_text(state.get("trends_research"))[:1200]
-    review = _safe_text(state.get("review"))[:700]
-    fact_check = _safe_text(state.get("fact_check"))[:700]
+    data = _prepare(state)
 
-    market_sources = _safe_results(state.get("market_sources"))
-    technology_sources = _safe_results(state.get("technology_sources"))
-    trends_sources = _safe_results(state.get("trends_sources"))
+    # -------------------------------------------------
+    # Fallback if all upstream agents failed
+    # -------------------------------------------------
 
-    # -----------------------------------------------------
-    # Hard fallback if core research failed
-    # -----------------------------------------------------
     if (
-        _is_llm_failure(summary)
-        and _is_llm_failure(market)
-        and _is_llm_failure(technology)
-        and _is_llm_failure(trends)
+        _is_llm_failure(data["summary"])
+        and _is_llm_failure(data["market"])
+        and _is_llm_failure(data["technology"])
+        and _is_llm_failure(data["trends"])
     ):
-        report = _build_non_llm_report(state)
+
         return {
-            "title": query,
-            "report": report,
+            "title": data["query"] or "Research Report",
+            "report": _build_non_llm_report(state),
         }
 
-    # -----------------------------------------------------
-    # Grounded writer prompt
-    # IMPORTANT:
-    # - Only synthesize from supplied evidence
-    # - Do not invent figures / citations
-    # - If evidence is missing, explicitly say so
-    # -----------------------------------------------------
+    # =====================================================
+    # Optimized Writer Prompt (Lower Token Usage)
+    # =====================================================
+
     prompt = f"""
-You are a senior research editor. Your job is to produce a final research report ONLY from the supplied material below.
+You are a senior research consultant.
 
-STRICT RULES:
-1. Use ONLY the evidence provided in:
-   - Research Plan
-   - Executive Summary
-   - Market Analysis Draft
-   - Technology Analysis Draft
-   - Trends Analysis Draft
-   - Review Notes
-   - Fact Check Notes
-   - Source snippets
-2. DO NOT invent statistics, market sizes, CAGR values, company financials, dates, or references that do not appear in the provided material.
-3. DO NOT create fake citation markers like [1], [2], etc. unless those exact citations already exist in the provided material.
-4. If a section lacks evidence, say so explicitly instead of making it up.
-5. Preserve nuance and uncertainty from the fact-check/review notes.
-6. Output valid markdown only.
+Generate a polished executive report.
 
-Write a concise, professional report with this structure:
+IMPORTANT
 
-# Executive Summary
-# Key Findings
-# Market Analysis
-# Technology Analysis
-# Future Trends
-# Strategic Recommendations
-# Risks and Challenges
-# Conclusion
-# Source Notes
+- Use ONLY supplied evidence.
+- Never invent facts.
+- Never invent statistics.
+- Never invent CAGR.
+- Never invent companies.
+- Never invent technologies.
+- Never invent references.
+- If evidence is missing write:
+  "Not enough evidence available."
 
-Additional requirements:
-- Maximum 1400 words
-- Be analytical and practical
-- Prefer plain language over hype
-- Recommendations must be directly supported by the supplied material
-- In "Source Notes", summarize the available source coverage rather than inventing academic references
+Return VALID GitHub Markdown.
 
-========================
-RESEARCH PLAN
-========================
-{plan or "No research plan provided."}
+Do NOT output HTML.
 
-========================
-EXECUTIVE SUMMARY DRAFT
-========================
-{summary or "No executive summary provided."}
+Do NOT output ASCII tables.
 
-========================
-MARKET ANALYSIS DRAFT
-========================
-{market or "No market analysis provided."}
+Every major section begins with ##
 
-========================
-TECHNOLOGY ANALYSIS DRAFT
-========================
-{technology or "No technology analysis provided."}
+Every subsection begins with ###
 
-========================
-TRENDS ANALYSIS DRAFT
-========================
-{trends or "No trends analysis provided."}
+Leave one blank line after every heading.
 
-========================
-REVIEW NOTES
-========================
-{review or "No review notes provided."}
+Use ONLY markdown tables.
 
-========================
-FACT CHECK NOTES
-========================
-{fact_check or "No fact check notes provided."}
+Do NOT repeat information between sections.
 
-========================
-MARKET SOURCE SNIPPETS
-========================
-{_format_sources(market_sources, "Market")}
+Keep paragraphs under three sentences.
 
-========================
-TECHNOLOGY SOURCE SNIPPETS
-========================
-{_format_sources(technology_sources, "Technology")}
+------------------------------------------------
 
-========================
-TRENDS SOURCE SNIPPETS
-========================
-{_format_sources(trends_sources, "Trends")}
+## Executive Summary
+
+Write 2 concise paragraphs covering
+
+- Market
+- Technology
+- Opportunities
+- Risks
+
+------------------------------------------------
+
+## Key Findings
+
+Markdown table
+
+| Area | Finding |
+|------|---------|
+
+6-8 findings.
+
+------------------------------------------------
+
+## Market Analysis
+
+### Market Snapshot
+
+| Metric | Value |
+|--------|-------|
+| Market Size | |
+| Growth | |
+| Leading Region | |
+| Commercial Stage | |
+
+Unknown values:
+Not available.
+
+### Market Drivers
+
+Bullet list.
+
+### Competitive Landscape
+
+Not enough evidence available.
+
+Only companies supported by evidence.
+
+### Commercial Signals
+
+Bullet list.
+
+### Market Challenges
+
+Bullet list.
+
+### Key Takeaway
+
+One bullet.
+
+------------------------------------------------
+
+## Technology Analysis
+
+Technology ONLY.
+
+No market discussion.
+
+### Current Technology
+
+Maximum two paragraphs.
+
+### Technology Comparison
+
+| Technology | Maturity | Advantages | Limitations |
+
+### Current Capabilities
+
+Bullets.
+
+### Technical Challenges
+
+Bullets.
+
+### Infrastructure Requirements
+
+Bullets.
+
+### Key Takeaway
+
+One bullet.
+
+------------------------------------------------
+
+## Future Trends
+
+### Emerging Trends
+
+Bullets.
+
+### Adoption Outlook
+
+| Timeframe | Expected Development |
+
+### Key Takeaway
+
+One bullet.
+
+------------------------------------------------
+
+## Strategic Recommendations
+
+Use a numbered markdown list.
+
+Example:
+
+1. Recommendation
+2. Recommendation
+3. Recommendation
+4. Recommendation
+
+Do NOT restart numbering.
+
+Each recommendation contains
+
+Recommendation
+
+Reason
+
+Expected Impact
+
+Supporting Evidence
+
+------------------------------------------------
+
+## Risks
+
+| Risk | Impact | Supporting Evidence |
+
+------------------------------------------------
+
+## Conclusion
+
+Maximum two short paragraphs.
+
+------------------------------------------------
+
+## Source Coverage
+
+Bullet list only.
+
+Mention
+
+- Market Sources
+- Technology Sources
+- Trend Sources
+
+Never reproduce URLs.
+
+==================================================
+EXECUTIVE SUMMARY
+==================================================
+
+{data["summary"]}
+
+==================================================
+MARKET
+==================================================
+
+{data["market"]}
+
+==================================================
+TECHNOLOGY
+==================================================
+
+{data["technology"]}
+
+==================================================
+TRENDS
+==================================================
+
+{data["trends"]}
+
+==================================================
+MARKET SOURCES
+==================================================
+
+{_format_sources(data["market_sources"], "Market")}
+
+==================================================
+TECHNOLOGY SOURCES
+==================================================
+
+{_format_sources(data["technology_sources"], "Technology")}
+
+==================================================
+TREND SOURCES
+==================================================
+
+{_format_sources(data["trends_sources"], "Trend")}
 """
 
     report = _safe_text(safe_generate(prompt))
 
-    # -----------------------------------------------------
-    # If final generation is weak, use deterministic report
-    # -----------------------------------------------------
     if _is_llm_failure(report):
+
+        print("Writer failed. Using deterministic fallback.")
+
         report = _build_non_llm_report(state)
 
+        report = re.sub(
+        r"(## Executive Summary\s*\n*){2,}",
+        "## Executive Summary\n\n",
+        report,
+        flags=re.MULTILINE,
+        )
+
+    report = report.replace("■", "-")
+    report = report.replace("–", "-")
+    report = report.replace("—", "-")
+    report = report.strip()
+
+    # -------------------------------------------------
+    # Final fallback
+    # -------------------------------------------------
+
+    
+
+    # -------------------------------------------------
+    # Final cleanup
+    # -------------------------------------------------
+
+    
+
     return {
-        "title": query,
+        "title": data["query"] or "Research Report",
         "report": report,
     }

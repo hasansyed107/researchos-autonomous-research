@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import API from "./api";
-import { jsPDF } from "jspdf";
+
 
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
@@ -315,13 +315,44 @@ function App() {
     }
   };
 
-  const exportPDF = () => {
-    if (!report) return;
+  const exportPDF = async () => {
+  if (!report) return;
 
-    const doc = new jsPDF();
-    const lines = doc.splitTextToSize(report, 180);
-    doc.text(lines, 10, 10);
-    doc.save(`${query || "research-report"}.pdf`);
+  try {
+  const response = await API.post(
+  "/export-pdf",
+  {
+  topic: query,
+  report: report,
+  },
+  {
+  responseType: "blob",
+  }
+  );
+
+  const url = window.URL.createObjectURL(
+  new Blob([response.data], {
+  type: "application/pdf",
+  })
+  );
+
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = `${query || "ResearchOS"}_Report.pdf`;
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  link.remove();
+
+  window.URL.revokeObjectURL(url);
+
+  } catch (err) {
+  console.error("PDF Export Failed", err);
+  alert("Unable to export PDF.");
+  }
   };
 
   return (

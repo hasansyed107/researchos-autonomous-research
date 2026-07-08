@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import { FileText, BarChart3, Cpu, TrendingUp } from "lucide-react";
 
+import remarkGfm from "remark-gfm";
 function EmptyState() {
   const items = [
     {
@@ -66,7 +67,9 @@ export default function ReportViewer({ report }) {
 
   return (
     <div className="report-markdown prose prose-invert max-w-none">
-      <ReactMarkdown>{report}</ReactMarkdown>
-    </div>
+  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+    {report}
+  </ReactMarkdown>
+</div>
   );
 }
